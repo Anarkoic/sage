@@ -193,7 +193,7 @@ const NftCardComponent = ({
   return (
     <>
       <div
-        className={`cursor-pointer group${!nft.visible ? ' opacity-50 grayscale' : !nft.created_height ? ' pulsate-opacity' : ''}`}
+        className={`cursor-pointer${!nft.visible ? ' opacity-50 grayscale' : !nft.created_height ? ' pulsate-opacity' : ''}`}
         onClick={() => {
           if (selectionState === null) {
             navigate(`/nfts/${nft.launcher_id}`);
@@ -215,7 +215,7 @@ const NftCardComponent = ({
         tabIndex={0}
         aria-label={nft.name ? `NFT: ${nft.name}` : t`Unnamed NFT`}
       >
-        <div className='overflow-hidden rounded-t-lg relative'>
+        <div className='overflow-visible rounded-t-lg relative group/nft'>
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>

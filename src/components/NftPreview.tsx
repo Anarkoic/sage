@@ -1,8 +1,9 @@
 import { NftData } from '@/bindings';
-import { isImage, isVideo, isText, isJson, nftUri } from '@/lib/nftUri';
+import { isImage, isVideo, isText, isJson, isSvg, nftUri } from '@/lib/nftUri';
 import { cn } from '@/lib/utils';
+import { createSvgBlobUrl } from '@/lib/security';
 import { t } from '@lingui/core/macro';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface NftPreviewProps {
   data: NftData | null;
@@ -28,11 +29,26 @@ export function NftPreview({
   const textRef = useRef<HTMLPreElement>(null);
   const uri = nftUri(data?.mime_type ?? null, data?.blob ?? null);
 
-  // Dynamic text sizing effect for plain text and JSON
+  // For SVG content, create a sandboxed blob URL
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isSvg(data?.mime_type) && data?.blob) {
+      try {
+        const svgContent = atob(data.blob);
+        const url = createSvgBlobUrl(svgContent);
+        setBlobUrl(url);
+        return () => URL.revokeObjectURL(url);
+      } catch (e) {
+        console.warn('Failed to create SVG blob URL:', e);
+      }
+    }
+  }, [data?.mime_type, data?.blob]);
+
   useEffect(() => {
     const el = textRef.current;
     if (el && (isText(data?.mime_type) || isJson(data?.mime_type))) {
-      const { width, height } = el.getBoundingClientRect();
+      el.style.opacity = '0';
 
       // Get content dimensions
       const content = el.textContent || '';
@@ -41,6 +57,9 @@ export function NftPreview({
         ...lines.map((line) => getVisualLength(line)),
       );
       const lineCount = lines.length;
+
+      // Get container dimensions
+      const { width, height } = el.getBoundingClientRect();
 
       // Container dimensions in character units (assuming 16px per char)
       const containerColumns = width / 16;
@@ -54,11 +73,11 @@ export function NftPreview({
       const columnScale = containerColumns / contentColumns;
       const rowScale = containerRows / contentRows;
 
-      // Base scale (from ord)
+      // Base scale (from original implementation)
       const baseScale = compact ? 40 : 95;
 
       // For multi-line content, we should be more conservative with height scaling
-      const heightAdjustment = lineCount > 1 ? 0.45 : 1; // Reduce scale for multi-line content
+      const heightAdjustment = lineCount > 1 ? 0.45 : 1;
 
       // Apply the most constraining scale
       const scale = Math.min(
@@ -79,28 +98,39 @@ export function NftPreview({
         const singleCharScale = compact ? 140 : 500;
         el.style.fontSize = `min(${(singleCharScale * containerWidth) / (100 * containerColumns)}px, ${(singleCharScale * containerHeight) / (100 * containerRows)}px)`;
       }
-
-      /*
-      console.log('Content Analysis:', {
-        type: isJson(data?.mime_type) ? 'JSON' : 'Text',
-        compact,
-        content,
-        lineCount,
-        maxLineLength,
-        visualLength: getVisualLength(content),
-        containerSize: { width, height },
-        fontSize: el.style.fontSize,
-        baseScale: baseScale,
-        columnScale: columnScale,
-        rowScale: rowScale,
-        heightAdjustment,
-        finalScale: scale,
-        containerDims: { containerWidth, containerHeight },
-      });*/
     }
   }, [data?.mime_type, compact]);
 
   if (isImage(data?.mime_type ?? null)) {
+    // Special handling for SVGs using sandboxed iframe
+    if (isSvg(data?.mime_type)) {
+      return blobUrl ? (
+        <iframe
+          title={name ?? t`SVG content`}
+          src={blobUrl}
+          sandbox="allow-scripts"
+          className={cn(
+            'h-auto w-auto border-0 bg-transparent transition-all duration-200',
+            compact && 'group-hover/nft:scale-105',
+            className
+          )}
+          style={{
+            width: compact ? '150px' : '400px',
+            height: compact ? '150px' : '400px',
+          }}
+        />
+      ) : (
+        // Fallback if blob URL creation fails
+        <div className={cn(
+          'flex items-center justify-center aspect-square bg-gray-100 text-gray-400',
+          className
+        )}>
+          <span className='text-sm'>{t`Invalid SVG content`}</span>
+        </div>
+      );
+    }
+
+    // Regular image handling
     return (
       <img
         alt={name ?? t`NFT artwork for unnamed NFT`}
@@ -108,8 +138,8 @@ export function NftPreview({
         width='150'
         height='150'
         className={cn(
-          'h-auto w-auto object-cover transition-all aspect-square color-[transparent]',
-          compact && 'group-hover:scale-105',
+          'h-auto w-auto object-cover transition-all duration-200 aspect-square color-[transparent]',
+          compact && 'group-hover/nft:scale-105',
           className,
         )}
         src={uri}
@@ -123,8 +153,8 @@ export function NftPreview({
         src={uri}
         controls
         className={cn(
-          'h-auto w-auto object-cover transition-all aspect-square',
-          compact && 'group-hover:scale-105',
+          'h-auto w-auto object-cover transition-all duration-200 aspect-square',
+          compact && 'group-hover/nft:scale-105',
           className,
         )}
       />
@@ -132,14 +162,13 @@ export function NftPreview({
   }
 
   if (isJson(data?.mime_type ?? null) || isText(data?.mime_type ?? null)) {
-    const content = isJson(data?.mime_type ?? null)
-      ? JSON.stringify(JSON.parse(uri), null, 2)
-      : uri;
+    // Content is already sanitized by nftUri
+    const content = uri;
 
     return (
       <div
         className={cn(
-          'grid h-full w-full place-items-center overflow-hidden',
+          'grid h-full w-full place-items-center overflow-visible',
           className,
         )}
         style={{
@@ -154,15 +183,18 @@ export function NftPreview({
             isJson(data?.mime_type)
               ? 'font-mono text-left'
               : 'font-sans text-center',
-            'bg-white border border-neutral-200 rounded-lg transition-all',
-            compact && 'group-hover:scale-105',
+            'bg-white border border-neutral-200 rounded-lg transition-all duration-200',
+            compact && 'group-hover/nft:scale-105',
           )}
           style={{
             gridColumn: '1 / 1',
             gridRow: '1 / 1',
             width: compact ? '150px' : '400px',
-            opacity: 0, // Start invisible until sized
+            opacity: 0,
             maxHeight: compact ? '150px' : '80vh',
+            transform: 'scale(1)',  // Initial scale
+            transformOrigin: 'center',
+            willChange: 'transform',  // Optimize transitions
           }}
         >
           {content}
